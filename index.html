@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenRouter 聊天測試</title>
+<style>
+  body { font-family: system-ui, "Noto Sans TC", sans-serif; max-width: 760px;
+         margin: 24px auto; padding: 0 16px; line-height: 1.6; color: #222; }
+  h1 { font-size: 1.3rem; }
+  label { font-size: .85rem; color: #555; display: block; margin-top: 10px; }
+  input, select, textarea, button { font-size: 1rem; padding: 8px; box-sizing: border-box; }
+  input, select, textarea { width: 100%; border: 1px solid #ccc; border-radius: 6px; }
+  textarea { resize: vertical; }
+  button { cursor: pointer; background: #2563eb; color: #fff; border: none;
+           border-radius: 6px; padding: 10px 16px; }
+  button:disabled { opacity: .5; cursor: default; }
+  #answer { white-space: pre-wrap; background: #f7f7f8; border: 1px solid #eee;
+            border-radius: 8px; padding: 14px; margin-top: 12px; min-height: 60px; }
+  #status { font-size: .85rem; color: #666; margin-top: 8px; }
+  .err { color: #b91c1c; }
+</style>
+</head>
+<body>
+  <h1>🌐 OpenRouter 聊天測試</h1>
+  <label>你的問題</label>
+  <textarea id="q" rows="3">用一句話介紹台灣。</textarea>
+  <div style="margin-top:10px"><button id="send" onclick="ask()">送出</button></div>
+  <div id="status"></div>
+  <div id="answer"></div>
+<script>
+const BASE = "https://morning-river-18bc.twlin628.workers.dev";
+
+function setStatus(msg, isErr) {
+  const el = document.getElementById("status");
+  el.textContent = msg;
+  el.className = isErr ? "err" : "";
+}
+
+async function ask() {
+  const question = document.getElementById("q").value.trim();
+  if (!question) return setStatus("請先輸入問題。", true);
+
+  const btn = document.getElementById("send");
+  btn.disabled = true;
+  setStatus("送出中…");
+  document.getElementById("answer").textContent = "";
+
+  try {
+    const res = await fetch(BASE + "/api/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "openrouter/free",
+        messages: [{ role: "user", content: question }],
+        stream: false,
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}：${text.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    const answer = data.choices?.[0]?.message?.content ?? "(沒有回應內容)";
+    document.getElementById("answer").textContent = answer;
+    const usage = data.usage;
+    const modelUsed = data.model ?? "openrouter/free";
+    setStatus(usage
+      ? `完成（模型：${modelUsed}，${usage.total_tokens ?? "?"} tokens）`
+      : `完成（模型：${modelUsed}）`
+    );
+  } catch (e) {
+    setStatus("失敗：" + e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
