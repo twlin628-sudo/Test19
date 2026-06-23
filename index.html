@@ -110,6 +110,7 @@ async function ask() {
           if (!line.startsWith("data: ")) continue;
           const json = line.slice(6).trim();
           if (json === "[DONE]") break;
+		  if (!json) continue;
 
           try {
             const obj = JSON.parse(json);
