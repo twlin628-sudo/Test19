@@ -99,26 +99,30 @@ async function ask() {
       const decoder = new TextDecoder();
       setStatus("回應中…");
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      let buffer = "";
 
-        const chunk = decoder.decode(value, { stream: true });
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
 
-        // 用 regex 抓出所有 data: 後面的內容
-        const matches = chunk.matchAll(/data:\s*(\{[\s\S]*?\})(?=data:|$)/g);
-
-        for (const match of matches) {
-          const json = match[1].trim();
-          try {
-            const obj = JSON.parse(json);
-            if (!modelUsed && obj.model) modelUsed = obj.model;
-            const delta = obj.choices?.[0]?.delta?.content ?? "";
-            fullText += delta;
-            document.getElementById("answer").textContent = fullText;
-          } catch {}
-        }
-      }
+  buffer += decoder.decode(value, { stream: true });
+  
+  const parts = buffer.split("data: ");
+  buffer = parts.pop(); // 最後一段可能不完整，留著下次用
+  
+  for (const part of parts) {
+    const json = part.trim();
+    if (!json || json.startsWith("[")) continue; // 跳過空白和 [DONE]
+    
+    try {
+      const obj = JSON.parse(json);
+      if (!modelUsed && obj.model) modelUsed = obj.model;
+      const delta = obj.choices?.[0]?.delta?.content ?? "";
+      fullText += delta;
+      document.getElementById("answer").textContent = fullText;
+    } catch {}
+  }
+}
     } else {
       // 非 stream 模式
       setStatus("回應中…");
