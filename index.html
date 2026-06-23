@@ -18,6 +18,7 @@
   #answer { white-space: pre-wrap; background: #f7f7f8; border: 1px solid #eee;
             border-radius: 8px; padding: 14px; margin-top: 12px; min-height: 60px; }
   #status { font-size: .85rem; color: #666; margin-top: 8px; }
+  #timer { font-size: .85rem; color: #2563eb; margin-top: 4px; font-variant-numeric: tabular-nums; }
   .err { color: #b91c1c; }
 </style>
 </head>
@@ -31,9 +32,29 @@
   <label>你的問題</label>
   <textarea id="q" rows="3">用一句話介紹台灣。</textarea>
   <div style="margin-top:10px"><button id="send" onclick="ask()">送出</button></div>
+  <div id="timer"></div>
   <div id="status"></div>
   <div id="answer"></div>
 <script>
+let timerInterval = null;
+let startTime = null;
+
+function startTimer() {
+  startTime = Date.now();
+  document.getElementById("timer").textContent = "⏱ 0.0 秒";
+  timerInterval = setInterval(() => {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    document.getElementById("timer").textContent = `⏱ ${elapsed} 秒`;
+  }, 100);
+}
+
+function stopTimer() {
+  clearInterval(timerInterval);
+  timerInterval = null;
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  document.getElementById("timer").textContent = `⏱ ${elapsed} 秒（完成）`;
+}
+
 function setStatus(msg, isErr) {
   const el = document.getElementById("status");
   el.textContent = msg;
@@ -47,8 +68,10 @@ async function ask() {
 
   const btn = document.getElementById("send");
   btn.disabled = true;
-  setStatus("送出中…");
   document.getElementById("answer").textContent = "";
+  document.getElementById("timer").textContent = "";
+  setStatus("送出中…");
+  startTimer();
 
   try {
     const res = await fetch(BASE + "/api/chat/completions", {
@@ -65,38 +88,51 @@ async function ask() {
       throw new Error(`HTTP ${res.status}：${text.slice(0, 200)}`);
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
+    const contentType = res.headers.get("Content-Type") || "";
     let fullText = "";
     let modelUsed = "";
 
-    setStatus("回應中…");
+    if (contentType.includes("text/event-stream")) {
+      // Stream 模式
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      setStatus("回應中…");
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n");
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
 
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const json = line.slice(6).trim();
-        if (json === "[DONE]") break;
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const json = line.slice(6).trim();
+          if (json === "[DONE]") break;
 
-        try {
-          const obj = JSON.parse(json);
-          if (!modelUsed && obj.model) modelUsed = obj.model;
-          const delta = obj.choices?.[0]?.delta?.content ?? "";
-          fullText += delta;
-          document.getElementById("answer").textContent = fullText;
-        } catch {}
+          try {
+            const obj = JSON.parse(json);
+            if (!modelUsed && obj.model) modelUsed = obj.model;
+            const delta = obj.choices?.[0]?.delta?.content ?? "";
+            fullText += delta;
+            document.getElementById("answer").textContent = fullText;
+          } catch {}
+        }
       }
+    } else {
+      // 非 stream 模式
+      setStatus("回應中…");
+      const data = await res.json();
+      fullText = data.choices?.[0]?.message?.content ?? "(沒有回應內容)";
+      modelUsed = data.model ?? "";
+      document.getElementById("answer").textContent = fullText;
     }
 
+    stopTimer();
     setStatus(modelUsed ? `完成（模型：${modelUsed}）` : "完成");
 
   } catch (e) {
+    stopTimer();
     setStatus("失敗：" + e.message, true);
   } finally {
     btn.disabled = false;
