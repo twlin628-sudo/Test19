@@ -104,14 +104,12 @@ async function ask() {
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const json = line.slice(6).trim();
-          if (json === "[DONE]") break;
-		  if (!json) continue;
+        // 用 regex 抓出所有 data: 後面的內容
+        const matches = chunk.matchAll(/data:\s*(\{[\s\S]*?\})(?=data:|$)/g);
 
+        for (const match of matches) {
+          const json = match[1].trim();
           try {
             const obj = JSON.parse(json);
             if (!modelUsed && obj.model) modelUsed = obj.model;
