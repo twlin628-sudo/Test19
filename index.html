@@ -56,22 +56,46 @@ async function ask() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         messages: [{ role: "user", content: question }],
-        stream: false,
+        stream: true,
       }),
     });
+
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`HTTP ${res.status}：${text.slice(0, 200)}`);
     }
-    const data = await res.json();
-    const answer = data.choices?.[0]?.message?.content ?? "(沒有回應內容)";
-    document.getElementById("answer").textContent = answer;
-    const usage = data.usage;
-    const modelUsed = data.model ?? "未知";
-    setStatus(usage
-      ? `完成（模型：${modelUsed}，${usage.total_tokens ?? "?"} tokens）`
-      : `完成（模型：${modelUsed}）`
-    );
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = "";
+    let modelUsed = "";
+
+    setStatus("回應中…");
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n");
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const json = line.slice(6).trim();
+        if (json === "[DONE]") break;
+
+        try {
+          const obj = JSON.parse(json);
+          if (!modelUsed && obj.model) modelUsed = obj.model;
+          const delta = obj.choices?.[0]?.delta?.content ?? "";
+          fullText += delta;
+          document.getElementById("answer").textContent = fullText;
+        } catch {}
+      }
+    }
+
+    setStatus(modelUsed ? `完成（模型：${modelUsed}）` : "完成");
+
   } catch (e) {
     setStatus("失敗：" + e.message, true);
   } finally {
